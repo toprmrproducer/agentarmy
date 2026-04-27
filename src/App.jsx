@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Shield, Network, LayoutGrid } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Shield, Network, Settings, Sparkles } from 'lucide-react';
 import CEOConsole from './components/CEOConsole';
 import ApprovalQueue from './components/ApprovalQueue';
 import AgentGraph from './components/AgentGraph';
@@ -7,10 +7,14 @@ import AgentModal, { AGENT_META } from './components/AgentModal';
 import FleetOverview from './components/FleetOverview';
 import TaskStream from './components/TaskStream';
 import ApiPanel from './components/ApiPanel';
+import SetupGuide from './components/SetupGuide';
+import OnboardingWizard from './components/OnboardingWizard';
+import { isOnboarded, resetOnboarding } from './lib/storage';
+import { decomposeGoal, detectActiveProvider } from './lib/agentBrain';
 
 const ALL_IDS = Object.keys(AGENT_META);
 
-const CSUITE_TASKS = {
+const FALLBACK_CSUITE_TASKS = {
   cmo: 'Develop and execute integrated marketing strategy for the campaign.',
   cto: 'Architect scalable infrastructure and ship all technical assets.',
   cso: 'Build enterprise sales pipeline and close key accounts.',
@@ -55,31 +59,56 @@ export default function App() {
   const [pendingTasks, setPendingTasks] = useState([]);
   const [globalStatus, setGlobalStatus] = useState('Awaiting instructions');
   const [selectedNode, setSelectedNode] = useState(null);
-  const [view, setView] = useState('graph');
+  const [showOnboarding, setShowOnboarding] = useState(!isOnboarded());
+  const [provider, setProvider] = useState(detectActiveProvider());
+
+  useEffect(() => {
+    setProvider(detectActiveProvider());
+  }, [showOnboarding]);
 
   const stats = useMemo(() => {
     const v = Object.values(agents);
     return {
-      working: v.filter(a => a.status === 'working').length,
+      working:   v.filter(a => a.status === 'working').length,
       completed: v.filter(a => a.status === 'completed').length,
-      pending: v.filter(a => a.status === 'pending').length,
+      pending:   v.filter(a => a.status === 'pending').length,
     };
   }, [agents]);
 
-  const handleCEOAnalyze = (prompt) => {
-    setGlobalStatus('CEO synthesizing the strategy…');
-    setTimeout(() => {
-      const csuiteTasks = Object.entries(CSUITE_TASKS).map(([dept, description]) => ({ department: dept, description }));
-      setPendingTasks(csuiteTasks);
-      setAgents(prev => {
-        const next = { ...prev };
-        next.ceo = { status: 'working', task: `Delegating goal: "${prompt}"`, output: null };
-        csuiteTasks.forEach(t => { next[t.department] = { status: 'pending', task: t.description, output: null }; });
-        Object.keys(SUB_TASKS).forEach(id => { next[id] = { status: 'pending', task: SUB_TASKS[id], output: null }; });
-        return next;
-      });
-      setGlobalStatus('Awaiting CEO approval');
-    }, 1200);
+  const handleCEOAnalyze = async (prompt) => {
+    setGlobalStatus(provider ? `CEO (${provider}) is decomposing the goal…` : 'CEO synthesizing the strategy…');
+    setAgents(prev => ({
+      ...prev,
+      ceo: { status: 'working', task: `Decomposing: "${prompt}"`, output: null },
+    }));
+
+    let csuiteTasks = null;
+    if (provider) {
+      try {
+        const result = await decomposeGoal(prompt);
+        if (result.tasks?.length) {
+          csuiteTasks = result.tasks
+            .filter(t => FALLBACK_CSUITE_TASKS[t.department])
+            .map(t => ({ department: t.department, description: t.description }));
+        }
+      } catch (err) {
+        console.error('Brain failed, falling back to simulation:', err);
+      }
+    }
+
+    if (!csuiteTasks?.length) {
+      csuiteTasks = Object.entries(FALLBACK_CSUITE_TASKS).map(([dept, description]) => ({ department: dept, description }));
+    }
+
+    setPendingTasks(csuiteTasks);
+    setAgents(prev => {
+      const next = { ...prev };
+      next.ceo = { status: 'working', task: `Delegating goal: "${prompt}"`, output: null };
+      csuiteTasks.forEach(t => { next[t.department] = { status: 'pending', task: t.description, output: null }; });
+      Object.keys(SUB_TASKS).forEach(id => { next[id] = { status: 'pending', task: SUB_TASKS[id], output: null }; });
+      return next;
+    });
+    setGlobalStatus('Awaiting CEO approval');
   };
 
   const handleApprove = () => {
@@ -87,7 +116,7 @@ export default function App() {
     setGlobalStatus('15 agents actively executing…');
     setAgents(prev => {
       const next = { ...prev };
-      Object.keys(CSUITE_TASKS).forEach(id => { if (next[id].status === 'pending') next[id] = { ...next[id], status: 'working' }; });
+      Object.keys(FALLBACK_CSUITE_TASKS).forEach(id => { if (next[id].status === 'pending') next[id] = { ...next[id], status: 'working' }; });
       return next;
     });
     setTimeout(() => {
@@ -101,7 +130,7 @@ export default function App() {
     Object.keys(SUB_TASKS).forEach((id, i) => {
       setTimeout(() => setAgents(prev => ({ ...prev, [id]: { ...prev[id], status: 'completed', output: OUTPUTS[id] } })), 7500 + i * 1200);
     });
-    Object.keys(CSUITE_TASKS).forEach((id, i) => {
+    Object.keys(FALLBACK_CSUITE_TASKS).forEach((id, i) => {
       setTimeout(() => setAgents(prev => ({ ...prev, [id]: { ...prev[id], status: 'completed', output: OUTPUTS[id] } })), 19000 + i * 1500);
     });
     setTimeout(() => {
@@ -110,9 +139,9 @@ export default function App() {
     }, 27500);
   };
 
-  const isAllDone = globalStatus.includes('completed');
+  const isAllDone   = globalStatus.includes('completed');
   const isExecuting = globalStatus.includes('executing');
-  const dotColor = isAllDone ? '#16a34a' : isExecuting ? '#d97706' : '#a1a1aa';
+  const dotColor    = isAllDone ? '#16a34a' : isExecuting ? '#d97706' : '#a1a1aa';
 
   return (
     <div className="container">
@@ -122,7 +151,9 @@ export default function App() {
           <div>
             <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '-0.025em' }}>Agent Army</h1>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              Multi-agent enterprise orchestration · {ALL_IDS.length} agents
+              Multi-agent orchestration · {ALL_IDS.length} agents
+              {provider && <span style={{ color: 'var(--status-completed)', fontWeight: 600 }}> · brain: {provider}</span>}
+              {!provider && <span style={{ color: 'var(--text-muted)' }}> · simulation mode</span>}
             </p>
           </div>
         </div>
@@ -137,6 +168,13 @@ export default function App() {
             <div className="status-dot" style={{ background: dotColor, boxShadow: `0 0 0 3px ${dotColor}22` }} />
             <span>{globalStatus}</span>
           </div>
+          <button
+            className="btn btn-secondary"
+            onClick={() => { resetOnboarding(); setShowOnboarding(true); }}
+            style={{ padding: '7px 12px', fontSize: '0.8rem' }}
+          >
+            <Settings size={13} /> Setup
+          </button>
         </div>
       </header>
 
@@ -171,10 +209,15 @@ export default function App() {
         <AgentGraph agentStatus={agents} selectedId={selectedNode} onSelectNode={setSelectedNode} />
       </section>
 
-      <ApiPanel />
+      <SetupGuide />
+      <ApiPanel onKeysChanged={() => setProvider(detectActiveProvider())} />
 
       {selectedNode && (
         <AgentModal agentId={selectedNode} agentData={agents[selectedNode]} onClose={() => setSelectedNode(null)} />
+      )}
+
+      {showOnboarding && (
+        <OnboardingWizard onClose={() => { setShowOnboarding(false); setProvider(detectActiveProvider()); }} />
       )}
     </div>
   );
