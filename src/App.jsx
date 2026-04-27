@@ -1,142 +1,181 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
+import { Shield, Network, LayoutGrid } from 'lucide-react';
 import CEOConsole from './components/CEOConsole';
 import ApprovalQueue from './components/ApprovalQueue';
-import DepartmentCard from './components/DepartmentCard';
-import { Megaphone, TrendingUp, Users, Settings, DollarSign, Code, Shield } from 'lucide-react';
+import AgentGraph from './components/AgentGraph';
+import AgentModal, { AGENT_META } from './components/AgentModal';
+import FleetOverview from './components/FleetOverview';
+import TaskStream from './components/TaskStream';
+import ApiPanel from './components/ApiPanel';
 
-const DEPARTMENTS = [
-  { id: 'marketing', name: 'Marketing', icon: Megaphone },
-  { id: 'sales', name: 'Sales', icon: TrendingUp },
-  { id: 'hr', name: 'Human Resources', icon: Users },
-  { id: 'operations', name: 'Operations', icon: Settings },
-  { id: 'finance', name: 'Finance', icon: DollarSign },
-  { id: 'developer', name: 'Developer', icon: Code },
-];
+const ALL_IDS = Object.keys(AGENT_META);
+
+const CSUITE_TASKS = {
+  cmo: 'Develop and execute integrated marketing strategy for the campaign.',
+  cto: 'Architect scalable infrastructure and ship all technical assets.',
+  cso: 'Build enterprise sales pipeline and close key accounts.',
+  coo: 'Coordinate cross-functional execution and optimize workflows.',
+  cfo: 'Approve budget, manage projections, and track daily spend.',
+};
+
+const SUB_TASKS = {
+  mktHead:     'Audit @ai.w.raj profile · analyze 25 reels · design 30-day strategy.',
+  contentLead: 'Produce viral content and manage the 30-day editorial calendar.',
+  leadDev:     'Build landing pages and lead-capture infrastructure.',
+  devOps:      'Scale cloud infrastructure to handle 10x traffic spike.',
+  salesHead:   'Generate 500 qualified leads and run outreach sequences.',
+  prMgr:       'Draft press releases and secure tier-1 media coverage.',
+  hrHead:      'Allocate 12 team members across all workstreams.',
+  opsHead:     'Streamline workflows and eliminate execution bottlenecks.',
+  finHead:     'Track daily spend vs. budget and generate P&L reports.',
+};
+
+const OUTPUTS = {
+  cmo:         'Marketing strategy live. 4 integrated campaigns running across all channels.',
+  cto:         'Infrastructure deployed. 99.98% uptime. p95 latency <120ms.',
+  cso:         'Pipeline at $2.4M ARR. 3 enterprise contracts signed this week.',
+  coo:         'All 9 workstreams running on schedule. Zero critical blockers.',
+  cfo:         '$48K spend approved. ROI projected at 4.2x by end of Q3.',
+  mktHead:     'Audit complete: 48.4K followers · baseline 18-22K reach · viral threshold 40K+. Top reel hit 355K (18.2x). 30-day strategy delivered — see report.',
+  contentLead: '30-day calendar finalized. 6 viral posts scheduled. Avg engagement +340%.',
+  leadDev:     'Landing page live in production. Lighthouse score 96/100.',
+  devOps:      'Auto-scaling active. AWS fleet at 10x baseline. All monitors green.',
+  salesHead:   '487 qualified leads generated. 22 discovery calls booked this week.',
+  prMgr:       'TechCrunch feature secured. 4 podcast appearances confirmed.',
+  hrHead:      '12 team members allocated. Jira sprints updated across all squads.',
+  opsHead:     'Process efficiency improved by 34%. All SLA targets met.',
+  finHead:     'Daily P&L dashboard live. Budget utilization at 82% — on track.',
+  ceo:         'Mission accomplished. All 14 reports completed objectives. Campaign launched.',
+};
+
+const initAgents = () => ALL_IDS.reduce((acc, id) => ({ ...acc, [id]: { status: 'idle', task: null, output: null } }), {});
 
 export default function App() {
-  const [agents, setAgents] = useState(
-    DEPARTMENTS.reduce((acc, dept) => {
-      acc[dept.id] = { status: 'idle', task: null, output: null };
-      return acc;
-    }, {})
-  );
-  
+  const [agents, setAgents] = useState(initAgents());
   const [pendingTasks, setPendingTasks] = useState([]);
   const [globalStatus, setGlobalStatus] = useState('Awaiting instructions');
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [view, setView] = useState('graph');
+
+  const stats = useMemo(() => {
+    const v = Object.values(agents);
+    return {
+      working: v.filter(a => a.status === 'working').length,
+      completed: v.filter(a => a.status === 'completed').length,
+      pending: v.filter(a => a.status === 'pending').length,
+    };
+  }, [agents]);
 
   const handleCEOAnalyze = (prompt) => {
-    setGlobalStatus('CEO is breaking down the goal...');
-    
-    // Simulate CEO Agent generating a plan based on the prompt
-    // In a real app, this would be an API call to an LLM
+    setGlobalStatus('CEO synthesizing the strategy…');
     setTimeout(() => {
-      const generatedTasks = [
-        { department: 'marketing', description: 'Analyze recent viral reels on Instagram and generate 5 new content ideas.' },
-        { department: 'sales', description: 'Generate lead list based on the new marketing campaign and draft outreach emails.' },
-        { department: 'developer', description: 'Create a landing page placeholder for the incoming traffic.' },
-        { department: 'operations', description: 'Ensure server capacity is scaled for the upcoming campaign launch.' },
-        { department: 'hr', description: 'Identify internal team members to execute the campaign and manage their workload.' },
-        { department: 'finance', description: 'Calculate projected ad spend for the new campaign and adjust monthly budget.' }
-      ];
-      
-      setPendingTasks(generatedTasks);
-      
-      // Update agent states to pending
-      const newAgents = { ...agents };
-      generatedTasks.forEach(t => {
-        newAgents[t.department] = { ...newAgents[t.department], status: 'pending', task: t.description };
+      const csuiteTasks = Object.entries(CSUITE_TASKS).map(([dept, description]) => ({ department: dept, description }));
+      setPendingTasks(csuiteTasks);
+      setAgents(prev => {
+        const next = { ...prev };
+        next.ceo = { status: 'working', task: `Delegating goal: "${prompt}"`, output: null };
+        csuiteTasks.forEach(t => { next[t.department] = { status: 'pending', task: t.description, output: null }; });
+        Object.keys(SUB_TASKS).forEach(id => { next[id] = { status: 'pending', task: SUB_TASKS[id], output: null }; });
+        return next;
       });
-      setAgents(newAgents);
-      setGlobalStatus('Pending CEO Approval');
-      
-    }, 1000);
+      setGlobalStatus('Awaiting CEO approval');
+    }, 1200);
   };
 
   const handleApprove = () => {
     setPendingTasks([]);
-    setGlobalStatus('Agents are actively executing tasks...');
-    
-    // Set all pending agents to 'working'
-    const workingAgents = { ...agents };
-    Object.keys(workingAgents).forEach(dept => {
-      if (workingAgents[dept].status === 'pending') {
-        workingAgents[dept] = { ...workingAgents[dept], status: 'working' };
-      }
+    setGlobalStatus('15 agents actively executing…');
+    setAgents(prev => {
+      const next = { ...prev };
+      Object.keys(CSUITE_TASKS).forEach(id => { if (next[id].status === 'pending') next[id] = { ...next[id], status: 'working' }; });
+      return next;
     });
-    setAgents(workingAgents);
+    setTimeout(() => {
+      setAgents(prev => {
+        const next = { ...prev };
+        Object.keys(SUB_TASKS).forEach(id => { if (next[id].status === 'pending') next[id] = { ...next[id], status: 'working' }; });
+        return next;
+      });
+    }, 2000);
 
-    // Simulate agents finishing their work over time
-    const outputs = {
-      marketing: "Generated 5 viral content ideas based on recent trends. Sent email back to CEO.",
-      sales: "Found 150 target leads. Drafted initial outreach email and started sequence.",
-      developer: "Landing page deployed to staging environment with lead capture form.",
-      operations: "Scaled AWS instances to handle 10x traffic spike. Monitoring active.",
-      hr: "Allocated 3 designers and 2 copywriters for the campaign. Adjusted Jira sprints.",
-      finance: "Approved $5,000 ad spend budget. Re-allocated funds from Q3 reserve."
-    };
-
-    Object.keys(outputs).forEach((dept, index) => {
-      setTimeout(() => {
-        setAgents(prev => ({
-          ...prev,
-          [dept]: { ...prev[dept], status: 'completed', output: outputs[dept] }
-        }));
-      }, 6000 + (index * 2000)); // Stagger completions, min 6s to show actions
+    Object.keys(SUB_TASKS).forEach((id, i) => {
+      setTimeout(() => setAgents(prev => ({ ...prev, [id]: { ...prev[id], status: 'completed', output: OUTPUTS[id] } })), 7500 + i * 1200);
     });
+    Object.keys(CSUITE_TASKS).forEach((id, i) => {
+      setTimeout(() => setAgents(prev => ({ ...prev, [id]: { ...prev[id], status: 'completed', output: OUTPUTS[id] } })), 19000 + i * 1500);
+    });
+    setTimeout(() => {
+      setAgents(prev => ({ ...prev, ceo: { ...prev.ceo, status: 'completed', output: OUTPUTS.ceo } }));
+      setGlobalStatus('All 15 agents completed successfully.');
+    }, 27500);
   };
 
-  // Check if all are done
-  useEffect(() => {
-    const activeAgents = Object.values(agents).filter(a => a.status === 'working' || a.status === 'pending');
-    if (activeAgents.length === 0 && globalStatus.includes('executing')) {
-      setGlobalStatus('All delegated tasks completed successfully.');
-    }
-  }, [agents, globalStatus]);
+  const isAllDone = globalStatus.includes('completed');
+  const isExecuting = globalStatus.includes('executing');
+  const dotColor = isAllDone ? '#16a34a' : isExecuting ? '#d97706' : '#a1a1aa';
 
   return (
     <div className="container">
-      <header style={{ marginBottom: '40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '16px', boxShadow: 'var(--shadow-md)' }}>
-            <Shield size={32} color="var(--accent-primary)" />
-          </div>
+      <header className="app-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="brand-mark"><Shield size={20} color="#fff" /></div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '2rem' }}>Agent Army Platform</h1>
-            <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Multi-Agent Enterprise Orchestration</p>
+            <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '-0.025em' }}>Agent Army</h1>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+              Multi-agent enterprise orchestration · {ALL_IDS.length} agents
+            </p>
           </div>
         </div>
-        <div style={{ background: 'var(--bg-card)', padding: '8px 16px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}>
-          <span style={{ color: 'var(--text-muted)' }}>System Status:</span> <strong style={{ color: globalStatus.includes('completed') ? 'var(--status-completed)' : 'var(--text-primary)' }}>{globalStatus}</strong>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 14, fontSize: '0.78rem' }}>
+            <div><span style={{ color: 'var(--text-muted)' }}>Working</span> <strong style={{ color: 'var(--status-working)' }}>{stats.working}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Done</span> <strong style={{ color: 'var(--status-completed)' }}>{stats.completed}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Pending</span> <strong style={{ color: 'var(--status-pending)' }}>{stats.pending}</strong></div>
+          </div>
+          <div className="status-pill">
+            <div className="status-dot" style={{ background: dotColor, boxShadow: `0 0 0 3px ${dotColor}22` }} />
+            <span>{globalStatus}</span>
+          </div>
         </div>
       </header>
 
-      <main>
-        <CEOConsole onAnalyze={handleCEOAnalyze} />
-        
-        <ApprovalQueue tasks={pendingTasks} onApprove={handleApprove} />
+      <CEOConsole onAnalyze={handleCEOAnalyze} />
+      <ApprovalQueue tasks={pendingTasks} onApprove={handleApprove} />
 
-        <div style={{ marginTop: '40px' }}>
-          <h2 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            Active Departments
-            <span style={{ fontSize: '0.8rem', background: 'var(--bg-card)', padding: '4px 12px', borderRadius: '20px', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
-              {DEPARTMENTS.length} Agents Online
+      <FleetOverview agents={agents} onSelectAgent={setSelectedNode} />
+
+      <TaskStream agents={agents} onSelectAgent={setSelectedNode} />
+
+      <section style={{ marginBottom: 28 }}>
+        <div className="section-head">
+          <div className="section-title">
+            <Network size={18} color="var(--text-secondary)" />
+            Command Graph
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 400, marginLeft: 4 }}>
+              Click any node to inspect
             </span>
-          </h2>
-          <div className="grid-departments">
-            {DEPARTMENTS.map(dept => (
-              <DepartmentCard 
-                key={dept.id}
-                id={dept.id}
-                name={dept.name}
-                icon={dept.icon}
-                status={agents[dept.id].status}
-                task={agents[dept.id].task}
-                output={agents[dept.id].output}
-              />
+          </div>
+          <div className="legend">
+            {[
+              ['#7c3aed', 'C-Level'], ['#db2777', 'Marketing'], ['#2563eb', 'Tech'],
+              ['#059669', 'Sales'], ['#ea580c', 'Ops'], ['#ca8a04', 'Finance'],
+            ].map(([c, l]) => (
+              <div key={l} className="legend-item">
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: c }} />
+                <span>{l}</span>
+              </div>
             ))}
           </div>
         </div>
-      </main>
+        <AgentGraph agentStatus={agents} selectedId={selectedNode} onSelectNode={setSelectedNode} />
+      </section>
+
+      <ApiPanel />
+
+      {selectedNode && (
+        <AgentModal agentId={selectedNode} agentData={agents[selectedNode]} onClose={() => setSelectedNode(null)} />
+      )}
     </div>
   );
 }
